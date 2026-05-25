@@ -108,3 +108,63 @@ class FeedForwardBlock(nn.Module):
         # then we apply W2 and B2 to the tensor and get a tensor of shape (batch, seq_len, d_model)
         # return the tensor
         return self.linear_2(self.dropout(torch.relu(self.linear_1(x))))    
+
+class MultiHeadAttentionBlock(nn.Module):
+
+    def __init__(self, d_model: int, h: int, dropout: float) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.h = h
+
+        # we have to divide the embedding vector into h heads, from the paper dk = d_model / h
+        assert d_model % h == 0, "d_model must be divisible by h"
+        self.d_k = d_model // h
+        # define matrix with which we will multiple Q, K, V
+        self.w_q = nn.Linear(d_model, d_model) # Wq
+        self.w_k = nn.Linear(d_model, d_model) # Wk
+        self.w_v = nn.Linear(d_model, d_model) # Wv
+        self.w_o = nn.Linear(d_model, d_model) # W0 - Output Matrix
+        self.dropout = nn.Dropout(dropout)
+
+    @staticmethod
+
+    def attention(query, key, value, mask, dropout=nn.Dropout):
+
+        # (Batch, h, Seq_Len, d_k) --> (Batch, h, Seq_len, Seq_Len)
+        d_k = query.shape[-1]
+        attention_scores = (query @ key.transpose(-2,-1)) / math.sqrt(d_k)
+        if mask is not None:
+            attention_scores = attention_scores.masked_fill_(mask == 0, -1e9)
+        attention_scores = attention_scores.softmax(dim=-1)
+        if dropout is not None:
+            attention_scores = dropout(attention_scores)
+
+        return (attention_scores @ value), attention_scores
+
+    def forward(self, q, k, v, mask = None):
+        # q, k, v are tensors of shape (batch, seq_len, d_model)
+        # mask is a tensor of shape (batch, seq_len, seq_len), -infinity, if we want some words to not interact with other words
+        # first we apply Wq, Wk, Wv to q, k, v and get a tensor of shape (batch, seq_len, d_model)
+        # then we apply dropout to the tensor
+        # then we apply the formula for multi-head attention
+        # then we apply Wo to the tensor and get a tensor of shape (batch, seq_len, d_model)
+        # return the tensor
+
+        # (batch, seq_len, d_model) --> (batch, seq_len, d_model)
+        query = self.w_q(q)
+        key = self.w_k(k)
+        value = self.w_v(v)
+
+        # (batch, seq_len, d_model) --> (batch, seq_len, d_k) --> (batch, h, seq_len, d_k), split into smaller matrices
+        query = query.view(query.shape[0], query.shape[1], self.h, self.d_k).transpose(1, 2) 
+        key = key.view(key.shape[0], key.shape[1], self.h, self.d_k).transpose(1, 2)
+        value = value.view(value.shape[0], value.shape[1], self.h, self.d_k).transpose(1, 2)
+
+        # let's calculate attention scores
+        x, self.attention_scores = MultiHeadAttentionBlock.attention(query, key, value, mask, dropout=self.dropout)
+
+        # (Batch, h, Seq_Len, d_k) --> (Batch, seq_len, h, d_k) --> (Batch, seq_len, d_model)
+        x = x.transpose(1, 2).contiguous().view(x.shape[0], -1, self.h * self.d_k)
+        
+        # (Batch, seq_len, d_model) --> (Batch, seq_len, d_model)
+        return self.w_o(x)
