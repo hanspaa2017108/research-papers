@@ -10,6 +10,8 @@ def get_config():
         "d_model": 512,
         "lang_src": "en",
         "lang_tgt": "hi",
+        "train_size": 18000,
+        "val_size": 2000,
         "model_folder": "weights",
         "model_filename": "tmodel_",
         "preload": None,
